@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>(Autumn) Colors Munchman</title>
+  <link href="https://fonts.googleapis.com/css2?family=Mali:wght@700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      font-family: 'Mali', cursive, sans-serif;
+      background: #1e0f07;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    .header-bar {
+      width: 100%;
+      max-width: 570px;
+      padding: 10px 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.6);
+      border-bottom: 3px solid #d97706;
+      border-radius: 0 0 12px 12px;
+      font-size: 1.1rem;
+    }
+    .word-banner {
+      font-size: 1.3rem;
+      color: #fef08a;
+      letter-spacing: 2px;
+      font-weight: bold;
+    }
+    .stats-container {
+      display: flex;
+      gap: 15px;
+    }
+    .game-container {
+      position: relative;
+      margin-top: 10px;
+      border: 5px solid #d97706;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+      background: #0f0a05;
+    }
+    #gameCanvas {
+      display: block;
+    }
+    .instructions {
+      margin-top: 10px;
+      font-size: 0.95rem;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 6px 16px;
+      border-radius: 16px;
+      text-align: center;
+    }
+    .key-cap {
+      background: #d97706;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.88);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 10;
+      border-radius: 8px;
+    }
+    .overlay h1 {
+      font-size: 2.5rem;
+      color: #f59e0b;
+      margin-bottom: 5px;
+    }
+    .overlay p {
+      font-size: 1.1rem;
+      margin-bottom: 20px;
+      text-align: center;
+      padding: 0 20px;
+    }
+    .difficulty-box {
+      display: flex;
+      gap: 12px;
+    }
+    .btn {
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      font-family: 'Mali', cursive;
+      font-size: 1.1rem;
+      border-radius: 20px;
+      cursor: pointer;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+      transition: transform 0.1s;
+    }
+    .btn:active {
+      transform: scale(0.95);
+    }
+    .btn-easy { background: #16a34a; }
+    .btn-easy:hover { background: #15803d; }
+    .btn-normal { background: #d97706; }
+    .btn-normal:hover { background: #b45309; }
+    .btn-hard { background: #dc2626; }
+    .btn-hard:hover { background: #b91c1c; }
+  </style>
+</head>
+<body>
+
+  <div class="header-bar">
+    <div class="word-banner" id="wordDisplay">WORD: -</div>
+    <div class="stats-container">
+      <div>Lives: <span id="livesDisplay">💛 4</span></div>
+      <div>Score: <span id="scoreDisplay">0</span></div>
+    </div>
+  </div>
+
+  <div class="game-container">
+    <canvas id="gameCanvas" width="570" height="570"></canvas>
+    <div class="overlay" id="gameOverlay">
+      <h1 id="overlayTitle">Munchman</h1>
+      <p id="overlayText">Gobble ghosts in letter order to spell colors!</p>
+      <div class="difficulty-box">
+        <button class="btn btn-easy" onclick="startGame('easy')">EASY 🌱</button>
+        <button class="btn btn-normal" onclick="startGame('normal')">NORMAL 🍁</button>
+        <button class="btn btn-hard" onclick="startGame('hard')">HARD 🔥</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="instructions">
+    ⌨️ Use <span class="key-cap">←</span> <span class="key-cap">↑</span> <span class="key-cap">↓</span> <span class="key-cap">→</span> to move | 🌀 Use side tunnels to escape! | 🌰 Eat Acorns to freeze ghosts!
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const tileSize = 30;
+    const rows = 19;
+    const cols = 19;
+
+    // Difficulty Settings Matrix
+    const difficultySettings = {
+      easy: { playerSpeed: 2.0, ghostSpeed: 0.9, freezeDuration: 350 },
+      normal: { playerSpeed: 1.8, ghostSpeed: 1.4, freezeDuration: 280 },
+      hard: { playerSpeed: 1.8, ghostSpeed: 1.8, freezeDuration: 200 }
+    };
+
+    let currentDifficulty = 'normal';
+
+    const wordsList = ["GREEN", "BLUE", "RED", "YELLOW", "ORANGE", "BROWN", "PURPLE", "PINK", "AUTUMN", "LEAVES"];
+    let currentWordIndex = 0;
+    let targetWord = "";
+    let nextLetterIndex = 0;
+
+    let score = 0;
+    let lives = 3;
+    let freezeTimer = 0;
+    let gameActive = false;
+    let mouthFrame = 0;
+
+    // Web Audio Synthesizer
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playSound(type) {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      const now = audioCtx.currentTime;
+
+      if (type === 'leaf') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.exponentialRampToValueAtTime(880, now + 0.05);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.05);
+        osc.start(now);
+        osc.stop(now + 0.05);
+      } else if (type === 'acorn') {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(300, now);
+        osc.frequency.linearRampToValueAtTime(600, now + 0.15);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+        osc.start(now);
+        osc.stop(now + 0.15);
+      } else if (type === 'letter') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.setValueAtTime(659.25, now + 0.08);
+        osc.frequency.setValueAtTime(783.99, now + 0.16);
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.25);
+        osc.start(now);
+        osc.stop(now + 0.25);
+      } else if (type === 'hit') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(200, now);
+        osc.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.3);
+        osc.start(now);
+        osc.stop(now + 0.3);
+      } else if (type === 'win') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523, now);
+        osc.frequency.setValueAtTime(659, now + 0.1);
+        osc.frequency.setValueAtTime(783, now + 0.2);
+        osc.frequency.setValueAtTime(1046, now + 0.3);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.45);
+        osc.start(now);
+        osc.stop(now + 0.45);
+      }
+    }
+
+    // Maze Layout: 1 = Wall, 0 = Leaf Pellet, 2 = Empty Path, 3 = Acorn, 4 = Ghost House Gate
+    const map = [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,3,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,3,1],
+      [1,0,1,1,0,1,1,1,0,1,0,1,1,1,0,1,1,0,1],
+      [1,0,1,1,0,1,1,1,0,1,0,1,1,1,0,1,1,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1,0,1],
+      [1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1],
+      [1,1,1,1,0,1,1,1,2,1,2,1,1,1,0,1,1,1,1],
+      [1,1,1,1,0,1,2,2,2,2,2,2,2,1,0,1,1,1,1],
+      [2,2,2,2,0,1,2,1,1,4,1,1,2,1,0,2,2,2,2],
+      [1,1,1,1,0,1,2,1,2,2,2,1,2,1,0,1,1,1,1],
+      [1,1,1,1,0,1,2,1,1,1,1,1,2,1,0,1,1,1,1],
+      [1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
+      [1,0,1,1,0,1,1,1,0,1,0,1,1,1,0,1,1,0,1],
+      [1,3,0,1,0,0,0,0,0,2,0,0,0,0,0,1,0,3,1],
+      [1,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1],
+      [1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+    ];
+
+    let grid = JSON.parse(JSON.stringify(map));
+
+    const munchman = {
+      x: 9,
+      y: 17,
+      dirX: 0,
+      dirY: 0,
+      nextDirX: 0,
+      nextDirY: 0,
+      pixelX: 9 * tileSize,
+      pixelY: 17 * tileSize,
+      speed: 1.8
+    };
+
+    let ghosts = [];
+
+    window.addEventListener('keydown', (e) => {
+      if (!gameActive) return;
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+        munchman.nextDirX = -1; munchman.nextDirY = 0;
+      } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+        munchman.nextDirX = 1; munchman.nextDirY = 0;
+      } else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+        munchman.nextDirX = 0; munchman.nextDirY = -1;
+      } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+        munchman.nextDirX = 0; munchman.nextDirY = 1;
+      }
+    });
+
+    function startGame(mode) {
+      currentDifficulty = mode || 'normal';
+      munchman.speed = difficultySettings[currentDifficulty].playerSpeed;
+
+      score = 0;
+      lives = 3;
+      currentWordIndex = 0;
+      document.getElementById('scoreDisplay').innerText = score;
+      document.getElementById('livesDisplay').innerText = `💛 ${lives + 1}`;
+      document.getElementById('gameOverlay').style.display = 'none';
+      gameActive = true;
+      loadWord();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function loadWord() {
+      if (currentWordIndex >= wordsList.length) {
+        endGame(true);
+        return;
+      }
+
+      targetWord = wordsList[currentWordIndex];
+      nextLetterIndex = 0;
+      updateWordDisplay();
+
+      grid = JSON.parse(JSON.stringify(map));
+      resetPositions();
+      spawnGhosts();
+    }
+
+    function resetPositions() {
+      munchman.x = 9;
+      munchman.y = 17;
+      munchman.pixelX = 9 * tileSize;
+      munchman.pixelY = 17 * tileSize;
+      munchman.dirX = 0;
+      munchman.dirY = 0;
+      munchman.nextDirX = 0;
+      munchman.nextDirY = 0;
+
+      ghosts.forEach((ghost, idx) => {
+        ghost.x = 8 + (idx % 3);
+        ghost.y = 8;
+        ghost.pixelX = ghost.x * tileSize;
+        ghost.pixelY = ghost.y * tileSize;
+        ghost.dirX = Math.random() < 0.5 ? 1 : -1;
+        ghost.dirY = 0;
+      });
+    }
+
+    function spawnGhosts() {
+      ghosts = [];
+      const ghostColors = ['#ef4444', '#3b82f6', '#ec4899', '#10b981', '#f59e0b', '#8b5cf6'];
+      
+      for (let i = 0; i < targetWord.length; i++) {
+        ghosts.push({
+          letter: targetWord[i],
+          letterIndex: i,
+          x: 8 + (i % 3),
+          y: 8,
+          pixelX: (8 + (i % 3)) * tileSize,
+          pixelY: 8 * tileSize,
+          dirX: Math.random() < 0.5 ? 1 : -1,
+          dirY: 0,
+          color: ghostColors[i % ghostColors.length],
+          eaten: false
+        });
+      }
+    }
+
+    function updateWordDisplay() {
+      let display = "";
+      for (let i = 0; i < targetWord.length; i++) {
+        if (i < nextLetterIndex) {
+          display += `<span style="color: #4ade80;">${targetWord[i]}</span> `;
+        } else if (i === nextLetterIndex) {
+          display += `<span style="color: #facc15; text-decoration: underline;">${targetWord[i]}</span> `;
+        } else {
+          display += `_ `;
+        }
+      }
+      document.getElementById('wordDisplay').innerHTML = `WORD: ${display}`;
+    }
+
+    function isTileWalkableForMunchman(tileX, tileY) {
+      if (tileX < 0 || tileX >= cols) return true;
+      if (tileY < 0 || tileY >= rows) return false;
+      const tileVal = grid[tileY][tileX];
+      return tileVal !== 1 && tileVal !== 4;
+    }
+
+    function isTileWalkableForGhost(tileX, tileY) {
+      if (tileX < 0 || tileX >= cols) return true;
+      if (tileY < 0 || tileY >= rows) return false;
+      return grid[tileY][tileX] !== 1;
+    }
+
+    function checkLeafPelletsRemaining() {
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (grid[r][c] === 0) return true;
+        }
+      }
+      return false;
+    }
+
+    function advanceToNextWord() {
+      playSound('win');
+      currentWordIndex++;
+      setTimeout(() => loadWord(), 600);
+    }
+
+    function updateMunchman() {
+      if (munchman.pixelX < -tileSize / 2) {
+        munchman.pixelX = (cols - 1) * tileSize;
+      } else if (munchman.pixelX > (cols - 0.5) * tileSize) {
+        munchman.pixelX = 0;
+      }
+
+      if (Math.abs(munchman.pixelX % tileSize) < munchman.speed && Math.abs(munchman.pixelY % tileSize) < munchman.speed) {
+        const currentTileX = Math.round(munchman.pixelX / tileSize);
+        const currentTileY = Math.round(munchman.pixelY / tileSize);
+
+        if (currentTileX >= 0 && currentTileX < cols) {
+          if (grid[currentTileY][currentTileX] === 0) {
+            grid[currentTileY][currentTileX] = 2;
+            score += 10;
+            document.getElementById('scoreDisplay').innerText = score;
+            playSound('leaf');
+
+            if (!checkLeafPelletsRemaining()) {
+              advanceToNextWord();
+              return;
+            }
+          } else if (grid[currentTileY][currentTileX] === 3) {
+            grid[currentTileY][currentTileX] = 2;
+            score += 50;
+            freezeTimer = difficultySettings[currentDifficulty].freezeDuration;
+            document.getElementById('scoreDisplay').innerText = score;
+            playSound('acorn');
+          }
+        }
+
+        if (munchman.nextDirX !== 0 || munchman.nextDirY !== 0) {
+          if (isTileWalkableForMunchman(currentTileX + munchman.nextDirX, currentTileY + munchman.nextDirY)) {
+            munchman.dirX = munchman.nextDirX;
+            munchman.dirY = munchman.nextDirY;
+          }
+        }
+
+        if (!isTileWalkableForMunchman(currentTileX + munchman.dirX, currentTileY + munchman.dirY)) {
+          munchman.dirX = 0;
+          munchman.dirY = 0;
+        }
+      }
+
+      munchman.pixelX += munchman.dirX * munchman.speed;
+      munchman.pixelY += munchman.dirY * munchman.speed;
+      mouthFrame += 0.15;
+    }
+
+    function updateGhosts() {
+      if (freezeTimer > 0) {
+        freezeTimer--;
+        return;
+      }
+
+      const gSpeed = difficultySettings[currentDifficulty].ghostSpeed;
+
+      ghosts.forEach(ghost => {
+        if (ghost.eaten) return;
+
+        if (ghost.pixelX < -tileSize / 2) ghost.pixelX = (cols - 1) * tileSize;
+        else if (ghost.pixelX > (cols - 0.5) * tileSize) ghost.pixelX = 0;
+
+        if (Math.abs(ghost.pixelX % tileSize) < gSpeed && Math.abs(ghost.pixelY % tileSize) < gSpeed) {
+          const tileX = Math.round(ghost.pixelX / tileSize);
+          const tileY = Math.round(ghost.pixelY / tileSize);
+
+          const possibleDirs = [];
+          const dirs = [{x: 0, y: -1}, {x: 0, y: 1}, {x: -1, y: 0}, {x: 1, y: 0}];
+
+          dirs.forEach(d => {
+            if (isTileWalkableForGhost(tileX + d.x, tileY + d.y)) {
+              if (d.x !== -ghost.dirX || d.y !== -ghost.dirY) {
+                possibleDirs.push(d);
+              }
+            }
+          });
+
+          if (possibleDirs.length > 0) {
+            const chosen = possibleDirs[Math.floor(Math.random() * possibleDirs.length)];
+            ghost.dirX = chosen.x;
+            ghost.dirY = chosen.y;
+          } else {
+            ghost.dirX = -ghost.dirX;
+            ghost.dirY = -ghost.dirY;
+          }
+        }
+
+        ghost.pixelX += ghost.dirX * gSpeed;
+        ghost.pixelY += ghost.dirY * gSpeed;
+      });
+    }
+
+    function checkCollisions() {
+      ghosts.forEach(ghost => {
+        if (ghost.eaten) return;
+
+        const dx = (munchman.pixelX + tileSize / 2) - (ghost.pixelX + tileSize / 2);
+        const dy = (munchman.pixelY + tileSize / 2) - (ghost.pixelY + tileSize / 2);
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < tileSize * 0.7) {
+          if (ghost.letterIndex === nextLetterIndex) {
+            ghost.eaten = true;
+            nextLetterIndex++;
+            score += 100;
+            document.getElementById('scoreDisplay').innerText = score;
+            playSound('letter');
+            updateWordDisplay();
+
+            if (nextLetterIndex >= targetWord.length) {
+              advanceToNextWord();
+            }
+          } else {
+            playSound('hit');
+            lives--;
+            document.getElementById('livesDisplay').innerText = `💛 ${lives + 1}`;
+            if (lives < 0) {
+              endGame(false);
+            } else {
+              resetPositions();
+            }
+          }
+        }
+      });
+    }
+
+    function drawMunchman() {
+      const centerX = munchman.pixelX + tileSize / 2;
+      const centerY = munchman.pixelY + tileSize / 2;
+
+      let rotationAngle = 0;
+      if (munchman.dirX === 1) rotationAngle = 0;
+      else if (munchman.dirX === -1) rotationAngle = Math.PI;
+      else if (munchman.dirY === -1) rotationAngle = 1.5 * Math.PI;
+      else if (munchman.dirY === 1) rotationAngle = 0.5 * Math.PI;
+
+      const mouthOpen = 0.05 + Math.abs(Math.sin(mouthFrame)) * 0.22;
+
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(rotationAngle);
+
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.arc(0, 0, tileSize / 2 - 2, mouthOpen * Math.PI, (2 - mouthOpen) * Math.PI);
+      ctx.lineTo(0, 0);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const x = c * tileSize;
+          const y = r * tileSize;
+
+          if (grid[r][c] === 1) {
+            ctx.fillStyle = '#78350f';
+            ctx.fillRect(x, y, tileSize, tileSize);
+            ctx.strokeStyle = '#b45309';
+            ctx.strokeRect(x, y, tileSize, tileSize);
+          } else if (grid[r][c] === 4) {
+            ctx.fillStyle = '#d97706';
+            ctx.fillRect(x, y + 10, tileSize, 10);
+          } else if (grid[r][c] === 0) {
+            ctx.font = '14px sans-serif';
+            ctx.fillText('🍁', x + 8, y + 20);
+          } else if (grid[r][c] === 3) {
+            ctx.font = '20px sans-serif';
+            ctx.fillText('🌰', x + 5, y + 22);
+          }
+        }
+      }
+
+      drawMunchman();
+
+      ghosts.forEach(ghost => {
+        if (ghost.eaten) return;
+
+        const gx = ghost.pixelX + tileSize / 2;
+        const gy = ghost.pixelY + tileSize / 2;
+
+        ctx.fillStyle = freezeTimer > 0 ? '#64748b' : ghost.color;
+        
+        ctx.beginPath();
+        ctx.arc(gx, gy - 2, tileSize / 2 - 3, Math.PI, 0, false);
+        ctx.lineTo(gx + tileSize / 2 - 3, gy + tileSize / 2 - 3);
+        ctx.lineTo(gx - tileSize / 2 + 3, gy + tileSize / 2 - 3);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px Mali, cursive';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(ghost.letter, gx, gy - 2);
+      });
+    }
+
+    function gameLoop() {
+      if (!gameActive) return;
+
+      updateMunchman();
+      updateGhosts();
+      checkCollisions();
+      draw();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function endGame(isWin) {
+      gameActive = false;
+      const overlay = document.getElementById('gameOverlay');
+      const title = document.getElementById('overlayTitle');
+      const text = document.getElementById('overlayText');
+
+      overlay.style.display = 'flex';
+      if (isWin) {
+        title.innerText = "🏆 Victory!";
+        text.innerText = `You spelled all the autumn words! Final Score: ${score}`;
+      } else {
+        title.innerText = "💥 Game Over";
+        text.innerText = `Out of lives! You scored ${score} points.`;
+      }
+    }
+  </script>
+</body>
+</html>
